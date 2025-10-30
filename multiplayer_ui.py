@@ -17,13 +17,26 @@ class MultiplayerBattleshipUI:
         self.root.title("Quantum Battleship - Local Multiplayer")
         self.root.configure(bg="#0a0a0a")
         
+        # Configure window for better scaling
+        self.root.geometry("1200x800")  # Set initial size
+        self.root.minsize(900, 600)     # Set minimum size
+        
+        # Make window resizable and center it
+        self.root.resizable(True, True)
+        
+        # Center the window
+        self.root.update_idletasks()
+        x = (self.root.winfo_screenwidth() // 2) - (1200 // 2)
+        y = (self.root.winfo_screenheight() // 2) - (800 // 2)
+        self.root.geometry(f'1200x800+{x}+{y}')
+        
         # Game components
         self.player1_controller = GameController(grid_size=8, num_ships=8, auto_place_ships=False)
         self.player2_controller = GameController(grid_size=8, num_ships=8, auto_place_ships=False)
         
         # Game state
         self.grid_size = 8
-        self.cell_size = 50
+        self.cell_size = 60  # Increased from 50 for bigger grids
         self.game_phase = "ship_placement"  # "ship_placement" or "battle"
         self.current_player = 1  # 1 or 2
         self.ships_to_place = 8
@@ -32,12 +45,17 @@ class MultiplayerBattleshipUI:
         self.selected_region = []
         self.selection_mode = "square"
         self.ready_for_battle = False
+        self.turn_taken = False  # Flag to track if current player has taken their shot
         
         # UI elements
         self.player1_cells = [[None for _ in range(self.grid_size)] for _ in range(self.grid_size)]
         self.player2_cells = [[None for _ in range(self.grid_size)] for _ in range(self.grid_size)]
         self.player1_overlays = [[None for _ in range(self.grid_size)] for _ in range(self.grid_size)]
         self.player2_overlays = [[None for _ in range(self.grid_size)] for _ in range(self.grid_size)]
+        
+        # Track shot results separately from ship placements
+        self.player1_shot_overlays = [[None for _ in range(self.grid_size)] for _ in range(self.grid_size)]
+        self.player2_shot_overlays = [[None for _ in range(self.grid_size)] for _ in range(self.grid_size)]
         
         # Load assets first
         self.load_assets()
@@ -118,7 +136,7 @@ class MultiplayerBattleshipUI:
         )
         self.ship_counter.pack(pady=3)
         
-        # Turn transition button (hidden initially)
+        # Turn transition button (kept in status area for visibility during all phases)
         self.transition_frame = tk.Frame(self.status_frame, bg="#0a0a0a")
         
         self.transition_btn = tk.Button(
@@ -263,34 +281,36 @@ class MultiplayerBattleshipUI:
         random_btn = tk.Button(
             button_row,
             text="RANDOM PLACEMENT",
-            font=("Helvetica", 11, "bold"),
+            font=("Helvetica", 12, "bold"),
             bg="#ff6600",
             fg="white",
             activebackground="#ff8833",
             activeforeground="white",
             relief="raised",
             bd=3,
-            padx=15,
-            pady=8,
+            padx=20,
+            pady=10,
+            width=18,
             command=self.place_ships_randomly
         )
-        random_btn.pack(side=tk.LEFT, padx=8)
+        random_btn.pack(side=tk.LEFT, padx=10)
         
         confirm_btn = tk.Button(
             button_row,
             text="CONFIRM PLACEMENT",
-            font=("Helvetica", 11, "bold"),
+            font=("Helvetica", 12, "bold"),
             bg="#00aa00",
             fg="white",
             activebackground="#00cc00",
             activeforeground="white",
             relief="raised",
             bd=3,
-            padx=15,
-            pady=8,
+            padx=20,
+            pady=10,
+            width=18,
             command=self.confirm_ship_placement
         )
-        confirm_btn.pack(side=tk.LEFT, padx=8)
+        confirm_btn.pack(side=tk.LEFT, padx=10)
         
         # Battle controls (hidden during placement)
         self.battle_frame = tk.Frame(control_frame, bg="#0a0a0a")
@@ -330,56 +350,81 @@ class MultiplayerBattleshipUI:
                 button_frame,
                 text=text,
                 command=lambda m=mode: self.set_targeting_mode(m),
-                font=("Helvetica", 10, "bold"),
+                font=("Helvetica", 11, "bold"),
                 bg="#333366",
                 fg="white",
                 activebackground="#4455aa",
                 activeforeground="white",
                 relief="raised",
-                bd=2,
-                padx=12,
-                pady=6,
-                width=10
+                bd=3,
+                padx=15,
+                pady=8,
+                width=12
             )
-            btn.grid(row=0, column=i, padx=3)
+            btn.grid(row=0, column=i, padx=5)
             self.mode_buttons[mode] = btn
         
         # Set initial selection
         self.set_targeting_mode("square")
         
-        # Fire button
+        # Combat action buttons frame
+        combat_frame = tk.Frame(
+            self.battle_frame, 
+            bg="#1a1a2e", 
+            relief="raised", 
+            bd=2,
+            padx=15,
+            pady=12
+        )
+        combat_frame.pack(pady=15)
+        
+        tk.Label(
+            combat_frame,
+            text="COMBAT ACTIONS",
+            font=("Helvetica", 12, "bold"),
+            bg="#1a1a2e",
+            fg="#ff6600"
+        ).pack(pady=(0, 10))
+        
+        # Action buttons in a row
+        action_buttons_frame = tk.Frame(combat_frame, bg="#1a1a2e")
+        action_buttons_frame.pack()
+        
+        # Fire button (larger and more prominent)
         self.fire_btn = tk.Button(
-            self.battle_frame,
+            action_buttons_frame,
             text="QUANTUM FIRE!",
             command=self.fire_quantum_shot,
-            font=("Helvetica", 14, "bold"),
+            font=("Helvetica", 16, "bold"),
             bg="#cc3333",
             fg="white",
             activebackground="#ff4444",
             activeforeground="white",
             relief="raised",
-            bd=3,
-            padx=30,
-            pady=10
+            bd=4,
+            padx=25,
+            pady=12,
+            width=20
         )
-        self.fire_btn.pack(pady=15)
+        self.fire_btn.pack()
         
         # New game button
         new_game_btn = tk.Button(
             control_frame,
             text="NEW GAME",
-            font=("Helvetica", 12, "bold"),
+            font=("Helvetica", 14, "bold"),
             bg="#666666",
             fg="white",
             activebackground="#888888",
             activeforeground="white",
             relief="raised",
             bd=3,
-            padx=20,
-            pady=8,
+            padx=25,
+            pady=10,
+            width=12,
             command=self.new_game
         )
-        new_game_btn.pack(pady=10)
+        new_game_btn.pack(pady=15)
         
     def on_board_click(self, event):
         """Handle clicks on either board."""
@@ -436,6 +481,13 @@ class MultiplayerBattleshipUI:
         
     def handle_targeting(self, clicked_canvas, row, col):
         """Handle targeting during battle phase."""
+        # Check if current player has already taken their turn
+        if self.turn_taken:
+            messagebox.showinfo("Turn Complete", "You have already taken your shot this turn!\nClick 'PASS TO PLAYER X' to continue.", parent=self.root)
+            self.root.lift()
+            self.root.focus_force()
+            return
+            
         # Determine target board and controller
         if clicked_canvas == self.player1_canvas and self.current_player == 2:
             # Player 2 targeting Player 1
@@ -591,6 +643,9 @@ class MultiplayerBattleshipUI:
                 self.hide_ships(self.player1_canvas, self.player1_overlays)
                 self.hide_ships(self.player2_canvas, self.player2_overlays)
             
+            # Reset turn flag for the new player
+            self.turn_taken = False
+            
             # Hide transition button and clear any target selection
             self.transition_frame.pack_forget()
             self.selected_region = []
@@ -612,11 +667,20 @@ class MultiplayerBattleshipUI:
                 self.target_highlights = {}
             
     def hide_ships(self, canvas, overlays):
-        """Hide ships on a board by making them invisible."""
+        """Hide original ship placements (not shot results) on a board."""
         for i in range(self.grid_size):
             for j in range(self.grid_size):
                 if overlays[i][j]:
-                    canvas.itemconfig(overlays[i][j], state="hidden")
+                    # Only hide if it's not a shot result (ship image or splash from shots)
+                    # Check if this is a shot result by looking at shot overlay arrays
+                    if canvas == self.player1_canvas:
+                        is_shot_result = self.player1_shot_overlays[i][j] is not None
+                    else:
+                        is_shot_result = self.player2_shot_overlays[i][j] is not None
+                    
+                    # Only hide original ship placements, keep shot results visible
+                    if not is_shot_result:
+                        canvas.itemconfig(overlays[i][j], state="hidden")
                     
     def show_ships(self, canvas, ships, overlays):
         """Show ships on a board by making them visible."""
@@ -629,11 +693,17 @@ class MultiplayerBattleshipUI:
         """Start the battle phase."""
         self.game_phase = "battle"
         self.current_player = 1
+        self.turn_taken = False  # Reset turn flag for battle start
         self.status_label.config(text="PLAYER 1'S TURN - TARGET ENEMY FLEET")
         
         # Hide placement controls, show battle controls
         self.placement_frame.pack_forget()
         self.ship_counter.pack_forget()
+        
+        # Make sure transition button is hidden when starting battle
+        self.transition_frame.pack_forget()
+        
+        # Show battle controls
         self.battle_frame.pack()
         
         # Initialize battle state properly
@@ -684,6 +754,13 @@ class MultiplayerBattleshipUI:
             messagebox.showwarning("Not Ready", "Complete ship placement first!", parent=self.root)
             return
             
+        # Check if current player has already taken their turn
+        if self.turn_taken:
+            messagebox.showinfo("Turn Complete", "You have already taken your shot this turn!\nClick 'PASS TO PLAYER X' to continue.", parent=self.root)
+            self.root.lift()
+            self.root.focus_force()
+            return
+            
         # Check if target region is selected
         if not hasattr(self, 'selected_region') or not self.selected_region:
             messagebox.showwarning("No Target", "Please click on the enemy board to select a target region first!", parent=self.root)
@@ -711,6 +788,95 @@ class MultiplayerBattleshipUI:
             messagebox.showwarning("Error", result["error"], parent=self.root)
             return
             
+        # Mark that this player has taken their turn
+        self.turn_taken = True
+        
+        # Show targeting animation before displaying result
+        self.show_targeting_animation(result)
+    
+    def show_targeting_animation(self, shot_result):
+        """Show visual animation of player's targeting pattern."""
+        # Use the original selected region for animation, not the shot result coords
+        # The shot result coords are the MEASURED position after quantum measurement
+        if self.selected_region:
+            # Get the top-left corner of the selected region for 2x2 pattern
+            rows = [r for r, c in self.selected_region]
+            cols = [c for r, c in self.selected_region]
+            target_row = min(rows)  # Use minimum (top-left) instead of center
+            target_col = min(cols)  # Use minimum (top-left) instead of center
+        else:
+            return
+        
+        # Create animation overlay based on selection mode
+        self.animate_targeting_pattern(self.selection_mode, target_row, target_col, shot_result)
+        
+    def animate_targeting_pattern(self, pattern, target_row, target_col, shot_result):
+        """Animate the targeting pattern on target board."""
+        animation_cells = []
+        
+        # Define cells to highlight based on pattern
+        if pattern == "row":
+            animation_cells = [(target_row, col) for col in range(self.grid_size)]
+        elif pattern == "column":
+            animation_cells = [(row, target_col) for row in range(self.grid_size)]
+        elif pattern == "square":
+            # Highlight 2x2 area
+            for dr in range(2):
+                for dc in range(2):
+                    r, c = target_row + dr, target_col + dc
+                    if 0 <= r < self.grid_size and 0 <= c < self.grid_size:
+                        animation_cells.append((r, c))
+        else:
+            animation_cells = [(target_row, target_col)]
+        
+        # Create red pulse animation for all players
+        player_color = "#cc3333"    # Red for all players
+        player_outline = "#ff0000"  # Bright red outline
+        
+        self.targeting_animation_overlays = []
+        for row, col in animation_cells:
+            if 0 <= row < self.grid_size and 0 <= col < self.grid_size:
+                cx = col * self.cell_size + self.cell_size // 2
+                cy = row * self.cell_size + self.cell_size // 2
+                
+                # Create pulsing overlay for targeting
+                overlay = self.target_canvas.create_rectangle(
+                    cx - 20, cy - 20, cx + 20, cy + 20,
+                    fill=player_color, outline=player_outline, width=2, stipple="gray25"
+                )
+                self.targeting_animation_overlays.append(overlay)
+        
+        # Start pulsing animation
+        self.targeting_animation_step = 0
+        self.targeting_pulse_animation(shot_result)
+    
+    def targeting_pulse_animation(self, shot_result):
+        """Create pulsing effect for targeting animation."""
+        if self.targeting_animation_step < 6:  # Pulse 3 times
+            # Alternate visibility
+            if self.targeting_animation_step % 2 == 0:
+                # Show overlays
+                for overlay in self.targeting_animation_overlays:
+                    self.target_canvas.itemconfig(overlay, state="normal")
+            else:
+                # Hide overlays
+                for overlay in self.targeting_animation_overlays:
+                    self.target_canvas.itemconfig(overlay, state="hidden")
+            
+            self.targeting_animation_step += 1
+            # Continue animation after 300ms
+            self.root.after(300, lambda: self.targeting_pulse_animation(shot_result))
+        else:
+            # Animation complete - clean up and show result
+            for overlay in self.targeting_animation_overlays:
+                self.target_canvas.delete(overlay)
+            self.targeting_animation_overlays = []
+            
+            # Show the actual result after animation
+            self.complete_targeting_shot(shot_result)
+    
+    def complete_targeting_shot(self, result):
+        """Complete the targeting shot after animation."""
         # Determine which overlays to use
         if self.target_canvas == self.player1_canvas:
             overlays = self.player1_overlays
@@ -731,11 +897,24 @@ class MultiplayerBattleshipUI:
                 cy = hit_row * self.cell_size + self.cell_size // 2
                 # Show the ship image at the hit location
                 ship_overlay = self.target_canvas.create_image(cx, cy, image=self.ship_img)
-                # Mark this location as having an overlay
+                # Mark this location as having an overlay in BOTH arrays
                 if self.target_canvas == self.player1_canvas:
                     self.player1_overlays[hit_row][hit_col] = ship_overlay
+                    self.player1_shot_overlays[hit_row][hit_col] = ship_overlay  # Track as shot result
                 else:
                     self.player2_overlays[hit_row][hit_col] = ship_overlay
+                    self.player2_shot_overlays[hit_row][hit_col] = ship_overlay  # Track as shot result
+                
+                # Add red X over the hit ship
+                x_size = 20
+                x_mark1 = self.target_canvas.create_line(
+                    cx - x_size, cy - x_size, cx + x_size, cy + x_size,
+                    fill="#ff0000", width=4
+                )
+                x_mark2 = self.target_canvas.create_line(
+                    cx - x_size, cy + x_size, cx + x_size, cy - x_size,
+                    fill="#ff0000", width=4
+                )
         else:
             coords_info = f"Measured position: {result['coords']}" if result.get("coords") else "No measurement"
             messagebox.showinfo("Result", f"💧 MISS! Quantum scan found no ships.\n{coords_info}\n\nDetails: {result.get('message', '')}", parent=self.root)
@@ -751,6 +930,11 @@ class MultiplayerBattleshipUI:
                         cy = miss_row * self.cell_size + self.cell_size // 2
                         splash_overlay = self.target_canvas.create_image(cx, cy, image=self.splash_img)
                         overlays[miss_row][miss_col] = splash_overlay
+                        # Also track in shot overlays so it stays visible
+                        if self.target_canvas == self.player1_canvas:
+                            self.player1_shot_overlays[miss_row][miss_col] = splash_overlay
+                        else:
+                            self.player2_shot_overlays[miss_row][miss_col] = splash_overlay
         
         # Clear selection
         self.selected_region = []
@@ -777,6 +961,7 @@ class MultiplayerBattleshipUI:
         self.player1_ships = []
         self.player2_ships = []
         self.selected_region = []
+        self.turn_taken = False  # Reset turn flag
         self.ready_for_battle = False
         
         # Reset UI
@@ -786,7 +971,7 @@ class MultiplayerBattleshipUI:
         
         # Show placement controls, hide battle controls
         self.battle_frame.pack_forget()
-        self.transition_frame.pack_forget()
+        self.transition_frame.pack_forget()  # Hide transition button
         self.placement_frame.pack()
         
         # Clear all overlays
@@ -798,6 +983,10 @@ class MultiplayerBattleshipUI:
                 if self.player2_overlays[i][j]:
                     self.player2_canvas.delete(self.player2_overlays[i][j])
                     self.player2_overlays[i][j] = None
+                    
+        # Reset shot tracking arrays
+        self.player1_shot_overlays = [[None for _ in range(self.grid_size)] for _ in range(self.grid_size)]
+        self.player2_shot_overlays = [[None for _ in range(self.grid_size)] for _ in range(self.grid_size)]
         
         # Clear target highlights
         if hasattr(self, 'target_highlights'):

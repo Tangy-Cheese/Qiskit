@@ -19,6 +19,19 @@ class SinglePlayerBattleshipUI:
         self.root.title("Quantum Battleship - Single Player")
         self.root.configure(bg="#0a0a0a")  # Darker background for better contrast
         
+        # Configure window for better scaling
+        self.root.geometry("1000x700")  # Set initial size
+        self.root.minsize(800, 500)     # Set minimum size
+        
+        # Make window resizable and center it
+        self.root.resizable(True, True)
+        
+        # Center the window
+        self.root.update_idletasks()
+        x = (self.root.winfo_screenwidth() // 2) - (1000 // 2)
+        y = (self.root.winfo_screenheight() // 2) - (700 // 2)
+        self.root.geometry(f'1000x700+{x}+{y}')
+        
         # Game components
         self.player_controller = GameController(grid_size=8, num_ships=8, auto_place_ships=False)
         self.ai_controller = GameController(grid_size=8, num_ships=8, auto_place_ships=True)
@@ -26,7 +39,7 @@ class SinglePlayerBattleshipUI:
         
         # Game state
         self.grid_size = 8
-        self.cell_size = 50  # Reduced from 60 for more compact layout
+        self.cell_size = 60  # Increased for better visibility
         self.game_phase = "ship_placement"  # "ship_placement" or "battle"
         self.player_turn = True
         self.ships_to_place = 8
@@ -635,6 +648,89 @@ class SinglePlayerBattleshipUI:
             messagebox.showwarning("Error", result["error"], parent=self.root)
             return
             
+        # Show player targeting animation before displaying result
+        self.show_player_targeting_animation(result)
+        
+    def show_player_targeting_animation(self, shot_result):
+        """Show visual animation of player's targeting pattern."""
+        # Use the original selected region for animation, not the shot result coords
+        # The shot result coords are the MEASURED position after quantum measurement
+        if self.selected_region:
+            # Get the top-left corner of the selected region for 2x2 pattern
+            rows = [r for r, c in self.selected_region]
+            cols = [c for r, c in self.selected_region]
+            target_row = min(rows)  # Use minimum (top-left) instead of center
+            target_col = min(cols)  # Use minimum (top-left) instead of center
+        else:
+            return
+        
+        # Create animation overlay based on selection mode
+        self.animate_player_targeting_pattern(self.selection_mode, target_row, target_col, shot_result)
+        
+    def animate_player_targeting_pattern(self, pattern, target_row, target_col, shot_result):
+        """Animate the player's targeting pattern on AI's board."""
+        animation_cells = []
+        
+        # Define cells to highlight based on pattern
+        if pattern == "row":
+            animation_cells = [(target_row, col) for col in range(self.grid_size)]
+        elif pattern == "column":
+            animation_cells = [(row, target_col) for row in range(self.grid_size)]
+        elif pattern == "square":
+            # Highlight 2x2 area
+            for dr in range(2):
+                for dc in range(2):
+                    r, c = target_row + dr, target_col + dc
+                    if 0 <= r < self.grid_size and 0 <= c < self.grid_size:
+                        animation_cells.append((r, c))
+        else:
+            animation_cells = [(target_row, target_col)]
+        
+        # Create red pulse animation for player shots
+        self.player_animation_overlays = []
+        for row, col in animation_cells:
+            if 0 <= row < self.grid_size and 0 <= col < self.grid_size:
+                cx = col * self.cell_size + self.cell_size // 2
+                cy = row * self.cell_size + self.cell_size // 2
+                
+                # Create pulsing red overlay for player targeting
+                overlay = self.ai_canvas.create_rectangle(
+                    cx - 20, cy - 20, cx + 20, cy + 20,
+                    fill="#cc3333", outline="#ff0000", width=2, stipple="gray25"
+                )
+                self.player_animation_overlays.append(overlay)
+        
+        # Start pulsing animation
+        self.player_animation_step = 0
+        self.player_pulse_animation(shot_result)
+    
+    def player_pulse_animation(self, shot_result):
+        """Create pulsing effect for player targeting animation."""
+        if self.player_animation_step < 6:  # Pulse 3 times
+            # Alternate visibility
+            if self.player_animation_step % 2 == 0:
+                # Show overlays
+                for overlay in self.player_animation_overlays:
+                    self.ai_canvas.itemconfig(overlay, state="normal")
+            else:
+                # Hide overlays
+                for overlay in self.player_animation_overlays:
+                    self.ai_canvas.itemconfig(overlay, state="hidden")
+            
+            self.player_animation_step += 1
+            # Continue animation after 300ms
+            self.root.after(300, lambda: self.player_pulse_animation(shot_result))
+        else:
+            # Animation complete - clean up and show result
+            for overlay in self.player_animation_overlays:
+                self.ai_canvas.delete(overlay)
+            self.player_animation_overlays = []
+            
+            # Show the actual result after animation
+            self.complete_player_shot(shot_result)
+    
+    def complete_player_shot(self, result):
+        """Complete the player's shot after animation."""
         # Update AI board display with appropriate images
         if result["type"] == "hit":
             coords_info = f"at {result['coords']}" if result.get("coords") else ""
@@ -649,6 +745,17 @@ class SinglePlayerBattleshipUI:
                 cy = hit_row * self.cell_size + self.cell_size // 2
                 ship_overlay = self.ai_canvas.create_image(cx, cy, image=self.ship_img)
                 self.ai_overlays[hit_row][hit_col] = ship_overlay
+                
+                # Add red X over the hit ship
+                x_size = 20
+                x_mark1 = self.ai_canvas.create_line(
+                    cx - x_size, cy - x_size, cx + x_size, cy + x_size,
+                    fill="#ff0000", width=4
+                )
+                x_mark2 = self.ai_canvas.create_line(
+                    cx - x_size, cy + x_size, cx + x_size, cy - x_size,
+                    fill="#ff0000", width=4
+                )
         else:
             coords_info = f"Measured position: {result['coords']}" if result.get("coords") else "No measurement"
             messagebox.showinfo("Result", f"💧 MISS! Quantum scan found no ships.\n{coords_info}\n\nDetails: {result.get('message', '')}", parent=self.root)
