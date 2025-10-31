@@ -92,10 +92,57 @@ class MultiplayerBattleshipUI:
         self.ship_img = safe_load("ship.png")
         self.splash_img = safe_load("splash.png")
         
+    def _on_mousewheel(self, event):
+        """Handle mouse wheel scrolling."""
+        if event.num == 4 or event.delta > 0:
+            self.main_canvas.yview_scroll(-1, "units")
+        elif event.num == 5 or event.delta < 0:
+            self.main_canvas.yview_scroll(1, "units")
+    
+    def _center_content(self, event):
+        """Center the content in the canvas."""
+        canvas_width = event.width
+        frame_width = self.scrollable_frame.winfo_reqwidth()
+        
+        if frame_width < canvas_width:
+            # Center the frame if it's smaller than canvas
+            x_offset = (canvas_width - frame_width) // 2
+            self.main_canvas.coords(self.canvas_window, x_offset, 0)
+        else:
+            # Left-align if frame is larger than canvas
+            self.main_canvas.coords(self.canvas_window, 0, 0)
+        
     def setup_ui(self):
-        """Setup the complete UI."""
+        """Setup the complete UI with scrolling capability."""
+        # Create main canvas for scrolling
+        self.main_canvas = tk.Canvas(self.root, bg="#0a0a0a", highlightthickness=0)
+        self.scrollbar = tk.Scrollbar(self.root, orient="vertical", command=self.main_canvas.yview)
+        self.scrollable_frame = tk.Frame(self.main_canvas, bg="#0a0a0a")
+        
+        # Configure scrolling
+        self.scrollable_frame.bind(
+            "<Configure>",
+            lambda e: self.main_canvas.configure(scrollregion=self.main_canvas.bbox("all"))
+        )
+        
+        # Center the content window
+        self.canvas_window = self.main_canvas.create_window((0, 0), window=self.scrollable_frame, anchor="nw")
+        self.main_canvas.configure(yscrollcommand=self.scrollbar.set)
+        
+        # Bind canvas resize to center content
+        self.main_canvas.bind('<Configure>', self._center_content)
+        
+        # Pack scrolling components
+        self.main_canvas.pack(side="left", fill="both", expand=True)
+        self.scrollbar.pack(side="right", fill="y")
+        
+        # Bind mouse wheel to scrolling
+        self.root.bind_all("<MouseWheel>", self._on_mousewheel)
+        self.root.bind_all("<Button-4>", self._on_mousewheel)  # Linux
+        self.root.bind_all("<Button-5>", self._on_mousewheel)  # Linux
+        
         # Title
-        title_frame = tk.Frame(self.root, bg="#0a0a0a")
+        title_frame = tk.Frame(self.scrollable_frame, bg="#0a0a0a")
         title_frame.pack(pady=8)
         
         title_label = tk.Label(
@@ -117,7 +164,7 @@ class MultiplayerBattleshipUI:
         subtitle_label.pack()
         
         # Game status
-        self.status_frame = tk.Frame(self.root, bg="#0a0a0a")
+        self.status_frame = tk.Frame(self.scrollable_frame, bg="#0a0a0a")
         self.status_frame.pack(pady=5)
         
         self.status_label = tk.Label(
@@ -170,7 +217,7 @@ class MultiplayerBattleshipUI:
         
     def create_game_boards(self):
         """Create the dual board layout."""
-        boards_frame = tk.Frame(self.root, bg="#0a0a0a")
+        boards_frame = tk.Frame(self.scrollable_frame, bg="#0a0a0a")
         boards_frame.pack(pady=15)
         
         # Player 1's board (left side)
@@ -257,7 +304,7 @@ class MultiplayerBattleshipUI:
                 
     def create_controls(self):
         """Create control buttons and targeting options."""
-        control_frame = tk.Frame(self.root, bg="#0a0a0a")
+        control_frame = tk.Frame(self.scrollable_frame, bg="#0a0a0a")
         control_frame.pack(pady=15)
         
         # Ship placement buttons (shown during placement phase)
