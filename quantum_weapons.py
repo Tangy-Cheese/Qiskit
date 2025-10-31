@@ -150,21 +150,24 @@ class QuantumWeapons:
             # Ship detected case
             if measurement in ['01', '10']:
                 # Successful interaction-free detection (~25% chance)
-                detected_ship = random.choice(ships_in_region)
+                # EV can only detect presence in region, not exact location
                 return {
                     "type": "detected",
-                    "coords": detected_ship,
-                    "message": f"EV scan detected ship presence at {detected_ship} without interaction!",
+                    "coords": None,  # No specific coordinates - EV limitation
+                    "region": selected_region,
+                    "ship_count": len(ships_in_region),
+                    "message": f"EV scan detected {len(ships_in_region)} ship(s) somewhere in selected region. Exact location unknown.",
                     "method": "ev_scan",
                     "confidence": "high"
                 }
             elif measurement == '11':
-                # Interaction occurred (~25% chance) - ship takes damage but survives
-                damaged_ship = random.choice(ships_in_region)
+                # Interaction occurred (~25% chance) - general region affected
                 return {
                     "type": "interaction",
-                    "coords": damaged_ship,
-                    "message": f"EV scan interacted with ship at {damaged_ship}. Ship damaged but survives!",
+                    "coords": None,  # No specific coordinates
+                    "region": selected_region,
+                    "ship_count": len(ships_in_region),
+                    "message": f"EV scan interacted with region containing {len(ships_in_region)} ship(s). Ships damaged but survive!",
                     "method": "ev_scan",
                     "confidence": "medium"
                 }
@@ -173,7 +176,8 @@ class QuantumWeapons:
                 return {
                     "type": "inconclusive",
                     "coords": None,
-                    "message": "EV scan inconclusive. Quantum interference prevented clear detection.",
+                    "region": selected_region,
+                    "message": "EV scan inconclusive. Quantum interference prevented clear detection of region.",
                     "method": "ev_scan",
                     "confidence": "low"
                 }
@@ -183,17 +187,19 @@ class QuantumWeapons:
                 return {
                     "type": "clear",
                     "coords": None,
-                    "message": "EV scan shows perfect interference. No ships detected in region.",
+                    "region": selected_region,
+                    "ship_count": 0,
+                    "message": "EV scan shows perfect interference. No ships detected anywhere in selected region.",
                     "method": "ev_scan",
                     "confidence": "high"
                 }
             else:
                 # Noise/false positive
-                noise_coords = random.choice(selected_region)
                 return {
                     "type": "noise",
-                    "coords": noise_coords,
-                    "message": f"EV scan detected quantum noise at {noise_coords}. Possible false positive.",
+                    "coords": None,
+                    "region": selected_region,
+                    "message": f"EV scan detected quantum noise in region. Possible false positive - region may be empty.",
                     "method": "ev_scan",
                     "confidence": "low"
                 }

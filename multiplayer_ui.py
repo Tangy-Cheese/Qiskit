@@ -606,6 +606,10 @@ class MultiplayerBattleshipUI:
         self.target_canvas = canvas
         self.target_controller = controller
         
+        # Validate region was created successfully
+        if not self.selected_region:
+            return
+        
         # Highlight new selection with yellow overlay
         for rr, cc in self.selected_region:
             if 0 <= rr < self.grid_size and 0 <= cc < self.grid_size:
@@ -827,12 +831,13 @@ class MultiplayerBattleshipUI:
         
     def set_targeting_mode(self, mode):
         """Set the targeting mode and highlight selected button."""
-        # Clear any stuck visual effects when changing modes
-        self.clear_all_visual_effects()
+        # Clear any stuck visual effects when changing modes, but preserve target selection
+        self.clear_all_visual_effects(preserve_selection=True)
         
         self.selection_mode = mode
+        self.targeting_mode = mode  # Fix: Also update targeting_mode for validation
         self.mode_var.set(mode)
-        self.selected_region = []
+        # Don't clear selected_region - let the user keep their target selection
         
         # Update button appearances
         for btn_mode, button in self.mode_buttons.items():
@@ -855,8 +860,19 @@ class MultiplayerBattleshipUI:
             
     def fire_quantum_weapon(self, weapon_type):
         """Execute player's selected quantum weapon."""
+        # Save current selection before any processing that might clear it
+        saved_region = getattr(self, 'selected_region', []).copy() if hasattr(self, 'selected_region') else []
+        saved_canvas = getattr(self, 'target_canvas', None)
+        saved_controller = getattr(self, 'target_controller', None)
+        
         # Clear stuck visual effects but preserve target selection
         self.clear_all_visual_effects(preserve_selection=True)
+        
+        # Restore selection if it was cleared accidentally
+        if hasattr(self, 'selected_region') and not self.selected_region and saved_region:
+            self.selected_region = saved_region
+            self.target_canvas = saved_canvas
+            self.target_controller = saved_controller
         
         # Check if we're in battle phase
         if self.game_phase != "battle":
@@ -966,8 +982,14 @@ class MultiplayerBattleshipUI:
             self.transition_frame.pack(pady=10)
             next_player = 2 if self.current_player == 1 else 1
             self.transition_btn.config(text=f"PASS TO PLAYER {next_player}")
-        # Show targeting animation before displaying result
-        self.show_targeting_animation(result)
+        
+        # Show result based on weapon type
+        if weapon_type == "ev_scan":
+            # EV scans don't need targeting animation - show result directly
+            self.complete_targeting_shot(result)
+        else:
+            # Show targeting animation for Grover and classical shots
+            self.show_targeting_animation(result)
     
     def activate_zeno_defense(self):
         """Activate Zeno defense mode - reveal own ships and allow selection."""
@@ -1255,28 +1277,43 @@ class MultiplayerBattleshipUI:
                     self.player1_hits.append(result["coords"])
             
         elif result_type == "detected":
-            # EV scan successful detection
-            coords_info = f"at {result['coords']}" if result.get("coords") else ""
-            messagebox.showinfo("EV Detection!", f"🔍 SHIP DETECTED! EV scan found enemy ship {coords_info}!\n\n{result.get('message', '')}", parent=self.root)
+            # EV scan successful detection - region only, no specific coordinates
+            region_info = f"Region: {len(result.get('region', []))} squares scanned"
+            ship_count = result.get('ship_count', 'unknown')
+            messagebox.showinfo("EV Detection!", f"🔍 SHIPS DETECTED! EV scan found {ship_count} ship(s) in region!\n{region_info}\n\n{result.get('message', '')}", parent=self.root)
+            self.root.lift()
+            self.root.focus_force()
             self.show_detection_result(result)
             
         elif result_type == "interaction":
-            # EV scan with interaction (ship damaged)
-            coords_info = f"at {result['coords']}" if result.get("coords") else ""
-            messagebox.showinfo("EV Interaction!", f"⚡ INTERACTION! EV scan damaged ship {coords_info}!\n\n{result.get('message', '')}", parent=self.root)
+            # EV scan with interaction - region affected, no specific coordinates
+            region_info = f"Region: {len(result.get('region', []))} squares affected"
+            ship_count = result.get('ship_count', 'unknown')
+            messagebox.showinfo("EV Interaction!", f"⚡ REGION INTERACTION! EV scan affected {ship_count} ship(s) in region!\n{region_info}\n\n{result.get('message', '')}", parent=self.root)
+            self.root.lift()
+            self.root.focus_force()
             self.show_interaction_result(result, overlays, shot_overlays)
             
         elif result_type == "clear":
             # EV scan - no ships detected
-            messagebox.showinfo("EV Clear!", f"✅ AREA CLEAR! EV scan confirmed no ships in region.\n\n{result.get('message', '')}", parent=self.root)
+            region_info = f"Region: {len(result.get('region', []))} squares scanned"
+            messagebox.showinfo("EV Clear!", f"✅ REGION CLEAR! EV scan confirmed no ships in scanned area.\n{region_info}\n\n{result.get('message', '')}", parent=self.root)
+            self.root.lift()
+            self.root.focus_force()
             
         elif result_type == "inconclusive":
             # EV scan - inconclusive result
-            messagebox.showinfo("EV Inconclusive", f"❓ INCONCLUSIVE! EV scan could not determine ship presence.\n\n{result.get('message', '')}", parent=self.root)
+            region_info = f"Region: {len(result.get('region', []))} squares scanned"
+            messagebox.showinfo("EV Inconclusive", f"❓ INCONCLUSIVE! EV scan could not determine ship presence in region.\n{region_info}\n\n{result.get('message', '')}", parent=self.root)
+            self.root.lift()
+            self.root.focus_force()
             
         elif result_type == "noise":
             # EV scan - false positive
-            messagebox.showinfo("EV Noise", f"📡 QUANTUM NOISE! EV scan detected interference.\n\n{result.get('message', '')}", parent=self.root)
+            region_info = f"Region: {len(result.get('region', []))} squares scanned"
+            messagebox.showinfo("EV Noise", f"📡 QUANTUM NOISE! EV scan detected interference in region.\n{region_info}\n\n{result.get('message', '')}", parent=self.root)
+            self.root.lift()
+            self.root.focus_force()
             self.show_noise_result(result, overlays, shot_overlays)
             
         elif result_type == "blocked":
@@ -1342,53 +1379,64 @@ class MultiplayerBattleshipUI:
             )
     
     def show_detection_result(self, result):
-        """Show visual result for EV detection (no damage)."""
-        if "coords" in result:
-            det_row, det_col = result["coords"]
-            cx = det_col * self.cell_size + self.cell_size // 2
-            cy = det_row * self.cell_size + self.cell_size // 2
-            
-            # Show pulsing detection indicator
-            detection_marker = self.target_canvas.create_oval(
-                cx - 15, cy - 15, cx + 15, cy + 15,
-                outline="#00ff00", width=3, fill="", stipple="gray50"
-            )
-            
-            # Store for cleanup
-            if not hasattr(self, 'detection_markers'):
-                self.detection_markers = []
-            self.detection_markers.append(detection_marker)
+        """Show visual result for EV detection (region detection only, no specific coordinates)."""
+        # EV scans now only detect presence in region, not specific coordinates
+        if "region" in result:
+            region = result["region"]
+            for row, col in region:
+                cx = col * self.cell_size + self.cell_size // 2
+                cy = row * self.cell_size + self.cell_size // 2
+                
+                # Show region scan indicator (not specific ship location)
+                detection_marker = self.target_canvas.create_rectangle(
+                    cx - 20, cy - 20, cx + 20, cy + 20,
+                    outline="#00ff00", width=2, fill="", stipple="gray75"
+                )
+                
+                # Store for cleanup
+                if not hasattr(self, 'detection_markers'):
+                    self.detection_markers = []
+                self.detection_markers.append(detection_marker)
     
     def show_interaction_result(self, result, overlays, shot_overlays):
-        """Show visual result for EV interaction (ship damaged)."""
-        if "coords" in result and self.ship_img:
-            int_row, int_col = result["coords"]
-            cx = int_col * self.cell_size + self.cell_size // 2
-            cy = int_row * self.cell_size + self.cell_size // 2
-            
-            # Show ship with damage indicator
-            ship_overlay = self.target_canvas.create_image(cx, cy, image=self.ship_img)
-            overlays[int_row][int_col] = ship_overlay
-            shot_overlays[int_row][int_col] = ship_overlay
-            
-            # Add yellow damage indicator
-            damage_mark = self.target_canvas.create_oval(
-                cx - 10, cy - 10, cx + 10, cy + 10,
-                outline="#ffff00", width=3, fill="#ffff00", stipple="gray50"
-            )
+        """Show visual result for EV interaction (region affected, not specific ships)."""
+        # EV interaction affects region but doesn't pinpoint exact ship locations
+        if "region" in result:
+            region = result["region"]
+            for row, col in region:
+                cx = col * self.cell_size + self.cell_size // 2
+                cy = row * self.cell_size + self.cell_size // 2
+                
+                # Show interaction effect on region
+                interaction_mark = self.target_canvas.create_oval(
+                    cx - 15, cy - 15, cx + 15, cy + 15,
+                    outline="#ffaa00", width=2, fill="", stipple="gray50"
+                )
+                
+                # Store for cleanup
+                if not hasattr(self, 'interaction_markers'):
+                    self.interaction_markers = []
+                self.interaction_markers.append(interaction_mark)
     
     def show_noise_result(self, result, overlays, shot_overlays):
-        """Show visual result for quantum noise."""
-        if "coords" in result:
-            noise_row, noise_col = result["coords"]
-            cx = noise_col * self.cell_size + self.cell_size // 2
-            cy = noise_row * self.cell_size + self.cell_size // 2
-            
-            # Show static/noise indicator
-            noise_marker = self.target_canvas.create_rectangle(
-                cx - 8, cy - 8, cx + 8, cy + 8,
-                outline="#888888", width=2, fill="#888888", stipple="gray25"
-            )
+        """Show visual result for quantum noise in scanned region."""
+        # EV noise affects entire scanned region, not specific coordinates
+        if "region" in result:
+            region = result["region"]
+            for row, col in region:
+                cx = col * self.cell_size + self.cell_size // 2
+                cy = row * self.cell_size + self.cell_size // 2
+                
+                # Show noise/static indicator across region
+                noise_marker = self.target_canvas.create_rectangle(
+                    cx - 8, cy - 8, cx + 8, cy + 8,
+                    outline="#888888", width=1, fill="", stipple="gray25"
+                )
+                
+                # Store for cleanup
+                if not hasattr(self, 'noise_markers'):
+                    self.noise_markers = []
+                self.noise_markers.append(noise_marker)
     
     def show_miss_result(self, result, overlays, shot_overlays):
         """Show visual result for a miss."""
