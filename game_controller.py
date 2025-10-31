@@ -35,7 +35,7 @@ class GameController:
     
     def get_ship_positions(self):
         """Get all ship positions (for debugging)."""
-        return self.game.ships
+        return self.game.ship_positions
     
     def reset_game(self):
         """Reset the game to initial state."""

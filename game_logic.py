@@ -57,7 +57,12 @@ class QuantumBattleshipGame:
         """Get all coordinates for a selected region based on mode."""
         region = []
         
-        if selection_mode == "square":
+        if selection_mode == "classical":
+            # Classical mode - single square only
+            if 0 <= row < self.grid_size and 0 <= col < self.grid_size:
+                region.append((row, col))
+        
+        elif selection_mode == "square":
             for dx in range(region_size):
                 for dy in range(region_size):
                     rr, cc = row + dx, col + dy

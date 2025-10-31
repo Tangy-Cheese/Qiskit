@@ -12,7 +12,7 @@ class AIPlayer:
     
     def __init__(self, difficulty="medium"):
         self.difficulty = difficulty
-        self.shots_taken = []
+        self.shots_taken = set()  # Use set for O(1) lookup
         self.hits_found = []
         self.hunting_mode = False
         self.target_queue = []  # For smart hunting around hits
@@ -60,7 +60,7 @@ class AIPlayer:
         """Medium AI: Hunt mode after hits."""
         grid_size = game_controller.game.grid_size
         
-        # If we have targets to hunt, use them
+        # If we have targets to hunt, use
         if self.target_queue:
             target_cell = self.target_queue.pop(0)
             if target_cell not in self.shots_taken:
@@ -88,25 +88,82 @@ class AIPlayer:
         }
     
     def _make_quantum_move(self, game_controller) -> Dict:
-        """Hard AI: Quantum-inspired strategies with region targeting."""
+        """Hard AI: Advanced targeting strategies with quantum weapons."""
         grid_size = game_controller.game.grid_size
         
-        # Use quantum region targeting (rows/columns)
-        targeting_modes = ["square", "row", "column"]
-        weights = [0.3, 0.35, 0.35]  # Prefer lines for better coverage
+        # AI can choose between different strategies
+        strategies = ["advanced_targeting", "ev_scan", "defensive"]
+        weights = [0.6, 0.3, 0.1]  # Most likely to use advanced targeting
+        strategy = random.choices(strategies, weights=weights)[0]
         
+        if strategy == "ev_scan":
+            # Use EV scan on a promising area
+            return self._use_ev_scan(game_controller)
+        elif strategy == "defensive":
+            # Use Zeno defense (if AI has ships to protect)
+            return self._use_zeno_defense(game_controller)
+        else:
+            # Advanced targeting with classical weapons
+            return self._use_advanced_targeting(game_controller)
+    
+    def _use_ev_scan(self, game_controller) -> Dict:
+        """AI uses EV scan to detect ships without destroying them."""
+        grid_size = game_controller.game.grid_size
+        
+        # Choose a 2x2 region to scan
+        row = random.randint(0, grid_size - 2)
+        col = random.randint(0, grid_size - 2)
+        region = []
+        for dr in range(2):
+            for dc in range(2):
+                r, c = row + dr, col + dc
+                if 0 <= r < grid_size and 0 <= c < grid_size:
+                    region.append((r, c))
+        
+        # Filter out already shot cells
+        region = [cell for cell in region if cell not in self.shots_taken]
+        if not region:
+            return self._use_advanced_targeting(game_controller)
+        
+        # Use the quantum weapons system
+        from quantum_weapons import QuantumGameState
+        quantum_state = QuantumGameState()
+        
+        # Get player ship positions for EV scan
+        player_ships = game_controller.game.ship_positions
+        result = quantum_state.execute_attack("ev_scan", region, player_ships)
+        
+        # Record the region as shot
+        for cell in region:
+            self.shots_taken.add(cell)
+        
+        return {
+            "message": f"AI used EV scan on region starting at {(row, col)}: {result.get('message', '')}",
+            "result": result
+        }
+    
+    def _use_zeno_defense(self, game_controller) -> Dict:
+        """AI uses Zeno defense to protect its own ships."""
+        # For simplicity, AI will just make a regular shot instead of using defense
+        # (Zeno defense would require AI ship management which is complex)
+        return self._use_advanced_targeting(game_controller)
+    
+    def _use_advanced_targeting(self, game_controller) -> Dict:
+        """Use advanced targeting patterns."""
+        grid_size = game_controller.game.grid_size
+        
+        # Use advanced targeting modes
+        targeting_modes = ["square", "row", "column"]
+        weights = [0.3, 0.35, 0.35]
         mode = random.choices(targeting_modes, weights=weights)[0]
         
         if mode == "row":
-            # Target entire row
             row = self._get_best_row(game_controller)
             region = [(row, col) for col in range(grid_size)]
         elif mode == "column":
-            # Target entire column
             col = self._get_best_column(game_controller)
             region = [(row, col) for row in range(grid_size)]
         else:
-            # Target 2x2 square
             top_left = self._get_best_square_position(game_controller)
             region = []
             for dr in range(2):
@@ -117,59 +174,45 @@ class AIPlayer:
         
         # Filter out already shot cells
         region = [cell for cell in region if cell not in self.shots_taken]
-        
         if not region:
-            # Fallback to random
             return self._make_random_move(game_controller)
-        
+            
         result = self._execute_shot(game_controller, region)
         
         return {
-            "message": f"AI used quantum {mode} targeting: {result['message']}",
+            "message": f"AI used advanced {mode} targeting: {result.get('message', '')}",
             "result": result
         }
     
     def _execute_shot(self, game_controller, region: List[Tuple[int, int]]) -> Dict:
-        """Execute a shot on the given region."""
-        # Record shots
-        self.shots_taken.extend(region)
+        """Execute a shot on the given region using quantum weapons."""
+        # Import quantum weapons system
+        from quantum_weapons import QuantumGameState
         
-        # Use game controller to fire shot
-        result = game_controller.fire_shot(region)
+        # Filter out already shot cells from region
+        available_region = [cell for cell in region if cell not in self.shots_taken]
         
-        # Track hits
+        if not available_region:
+            return {"error": "No available cells in region", "type": "error"}
+        
+        # Record all cells in region as attempted (since quantum weapons target regions)
+        for cell in available_region:
+            self.shots_taken.add(cell)
+        
+        # Use the REAL quantum weapons system that the player uses
+        quantum_state = QuantumGameState()
+        
+        # Get player ship positions for quantum targeting
+        player_ships = game_controller.game.ship_positions
+        
+        # Use Grover shot (same as player's quantum weapon)
+        result = quantum_state.execute_attack("grover", available_region, player_ships)
+        
+        # Track hits for AI strategy
         if result.get("type") == "hit" and result.get("coords"):
             self.hits_found.append(result["coords"])
-        
+            
         return result
-    
-    def _add_adjacent_targets(self, hit_cell: Tuple[int, int], grid_size: int):
-        """Add adjacent cells to target queue for hunting."""
-        row, col = hit_cell
-        directions = [(0, 1), (0, -1), (1, 0), (-1, 0)]  # right, left, down, up
-        
-        for dr, dc in directions:
-            new_row, new_col = row + dr, col + dc
-            if (0 <= new_row < grid_size and 0 <= new_col < grid_size and
-                (new_row, new_col) not in self.shots_taken and
-                (new_row, new_col) not in self.target_queue):
-                self.target_queue.append((new_row, new_col))
-    
-    def _get_probability_target(self, game_controller) -> Tuple[int, int]:
-        """Get target based on probability analysis."""
-        grid_size = game_controller.game.grid_size
-        
-        # Simple probability: avoid edges, prefer center
-        available_cells = []
-        for row in range(grid_size):
-            for col in range(grid_size):
-                if (row, col) not in self.shots_taken:
-                    # Weight center cells higher
-                    center_distance = abs(row - grid_size//2) + abs(col - grid_size//2)
-                    weight = max(1, grid_size - center_distance)
-                    available_cells.extend([(row, col)] * weight)
-        
-        return random.choice(available_cells) if available_cells else (0, 0)
     
     def _get_best_row(self, game_controller) -> int:
         """Get the row with highest ship probability."""
@@ -225,7 +268,7 @@ class AIPlayer:
     
     def reset(self):
         """Reset AI state for a new game."""
-        self.shots_taken = []
+        self.shots_taken = set()
         self.hits_found = []
         self.hunting_mode = False
         self.target_queue = []

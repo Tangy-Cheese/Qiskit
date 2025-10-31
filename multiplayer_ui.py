@@ -4,6 +4,7 @@ from tkinter import messagebox
 from PIL import Image, ImageTk
 import os
 from game_controller import GameController
+from quantum_weapons import QuantumGameState
 
 
 class MultiplayerBattleshipUI:
@@ -13,27 +14,27 @@ class MultiplayerBattleshipUI:
     """
     
     def __init__(self, root):
+        # Track targeted squares per player for each region (dict: region tuple -> set of coords)
+        self.player1_targeted_regions = {}
+        self.player2_targeted_regions = {}
         self.root = root
         self.root.title("Quantum Battleship - Local Multiplayer")
         self.root.configure(bg="#0a0a0a")
-        
         # Configure window for better scaling
-        self.root.geometry("1200x800")  # Set initial size
-        self.root.minsize(900, 600)     # Set minimum size
-        
+        self.root.geometry("1300x700")  # Wider, less tall
+        self.root.minsize(1100, 650)    # Minimum size fits all controls
         # Make window resizable and center it
         self.root.resizable(True, True)
-        
         # Center the window
         self.root.update_idletasks()
-        x = (self.root.winfo_screenwidth() // 2) - (1200 // 2)
-        y = (self.root.winfo_screenheight() // 2) - (800 // 2)
-        self.root.geometry(f'1200x800+{x}+{y}')
-        
+        x = (self.root.winfo_screenwidth() // 2) - (1300 // 2)
+        y = (self.root.winfo_screenheight() // 2) - (700 // 2)
+        self.root.geometry(f'1300x700+{x}+{y}')
         # Game components
         self.player1_controller = GameController(grid_size=8, num_ships=8, auto_place_ships=False)
         self.player2_controller = GameController(grid_size=8, num_ships=8, auto_place_ships=False)
-        
+        # Quantum game state for managing quantum weapons
+        self.quantum_state = QuantumGameState()
         # Game state
         self.grid_size = 8
         self.cell_size = 60  # Increased from 50 for bigger grids
@@ -44,24 +45,30 @@ class MultiplayerBattleshipUI:
         self.player2_ships = []
         self.selected_region = []
         self.selection_mode = "square"
+        self.targeting_mode = "2x2"  # Default targeting mode
+        self.player1_hits = []  # Track ships hit by player 1
+        self.player2_hits = []  # Track ships hit by player 2
         self.ready_for_battle = False
         self.turn_taken = False  # Flag to track if current player has taken their shot
-        
         # UI elements
         self.player1_cells = [[None for _ in range(self.grid_size)] for _ in range(self.grid_size)]
         self.player2_cells = [[None for _ in range(self.grid_size)] for _ in range(self.grid_size)]
         self.player1_overlays = [[None for _ in range(self.grid_size)] for _ in range(self.grid_size)]
         self.player2_overlays = [[None for _ in range(self.grid_size)] for _ in range(self.grid_size)]
-        
         # Track shot results separately from ship placements
         self.player1_shot_overlays = [[None for _ in range(self.grid_size)] for _ in range(self.grid_size)]
         self.player2_shot_overlays = [[None for _ in range(self.grid_size)] for _ in range(self.grid_size)]
         
+        # Initialize visual effect tracking variables to prevent stuck elements
+        self.target_highlights = {}
+        self.targeting_animation_overlays = []
+        self.targeting_animation_step = 0
+        self.temp_revealed_ships = []
+        
         # Load assets first
         self.load_assets()
-        
         self.setup_ui()
-        
+
     def load_assets(self):
         """Load image assets for the game."""
         base_dir = os.path.dirname(os.path.abspath(__file__))
@@ -340,7 +347,7 @@ class MultiplayerBattleshipUI:
         
         self.mode_var = tk.StringVar(value="square")
         self.mode_buttons = {}
-        modes = [("2x2 Grid", "square"), ("Full Row", "row"), ("Full Column", "column")]
+        modes = [("Classical", "classical"), ("2x2 Grid", "square"), ("Full Row", "row"), ("Full Column", "column")]
         
         button_frame = tk.Frame(mode_buttons_frame, bg="#1a1a2e")
         button_frame.pack()
@@ -380,33 +387,91 @@ class MultiplayerBattleshipUI:
         
         tk.Label(
             combat_frame,
-            text="COMBAT ACTIONS",
+            text="QUANTUM WEAPONS",
             font=("Helvetica", 12, "bold"),
             bg="#1a1a2e",
             fg="#ff6600"
         ).pack(pady=(0, 10))
         
-        # Action buttons in a row
-        action_buttons_frame = tk.Frame(combat_frame, bg="#1a1a2e")
-        action_buttons_frame.pack()
+        # Quantum weapons in a row
+        weapons_frame = tk.Frame(combat_frame, bg="#1a1a2e")
+        weapons_frame.pack()
         
-        # Fire button (larger and more prominent)
-        self.fire_btn = tk.Button(
-            action_buttons_frame,
-            text="QUANTUM FIRE!",
-            command=self.fire_quantum_shot,
-            font=("Helvetica", 16, "bold"),
+        # Grover Shot button
+        self.grover_btn = tk.Button(
+            weapons_frame,
+            text="GROVER SHOT\n(Direct Attack)",
+            command=lambda: self.fire_quantum_weapon("grover"),
+            font=("Helvetica", 12, "bold"),
             bg="#cc3333",
             fg="white",
             activebackground="#ff4444",
             activeforeground="white",
             relief="raised",
             bd=4,
-            padx=25,
-            pady=12,
-            width=20
+            padx=15,
+            pady=10,
+            width=15,
+            height=3
         )
-        self.fire_btn.pack()
+        self.grover_btn.pack(side=tk.LEFT, padx=5)
+        
+        # EV Scan button
+        self.ev_scan_btn = tk.Button(
+            weapons_frame,
+            text="EV SCAN\n(Stealth Recon)",
+            command=lambda: self.fire_quantum_weapon("ev_scan"),
+            font=("Helvetica", 12, "bold"),
+            bg="#3366cc",
+            fg="white",
+            activebackground="#4477dd",
+            activeforeground="white",
+            relief="raised",
+            bd=4,
+            padx=15,
+            pady=10,
+            width=15,
+            height=3
+        )
+        self.ev_scan_btn.pack(side=tk.LEFT, padx=5)
+        
+        # Zeno Defense button
+        self.zeno_btn = tk.Button(
+            weapons_frame,
+            text="ZENO DEFENSE\n(Quantum Shield)",
+            command=lambda: self.activate_zeno_defense(),
+            font=("Helvetica", 12, "bold"),
+            bg="#cc9900",
+            fg="white",
+            activebackground="#dd9900",
+            activeforeground="white",
+            relief="raised",
+            bd=4,
+            padx=15,
+            pady=10,
+            width=15,
+            height=3
+        )
+        self.zeno_btn.pack(side=tk.LEFT, padx=5)
+        
+        # Classical Shot button
+        self.classical_btn = tk.Button(
+            weapons_frame,
+            text="CLASSICAL SHOT\n(Single Target)",
+            command=lambda: self.fire_quantum_weapon("classical"),
+            font=("Helvetica", 12, "bold"),
+            bg="#669933",
+            fg="white",
+            activebackground="#77aa44",
+            activeforeground="white",
+            relief="raised",
+            bd=4,
+            padx=15,
+            pady=10,
+            width=15,
+            height=3
+        )
+        self.classical_btn.pack(side=tk.LEFT, padx=5)
         
         # New game button
         new_game_btn = tk.Button(
@@ -481,6 +546,24 @@ class MultiplayerBattleshipUI:
         
     def handle_targeting(self, clicked_canvas, row, col):
         """Handle targeting during battle phase."""
+        # Check for defense mode
+        if hasattr(self, 'targeting_mode') and self.targeting_mode == "defense":
+            # Defense mode: player clicks on own board to apply Zeno defense
+            own_canvas = self.player1_canvas if self.current_player == 1 else self.player2_canvas
+            
+            if clicked_canvas == own_canvas:
+                # Clear any previous targeting highlights before applying defense
+                self.clear_all_visual_effects()
+                # Player clicked on own board - apply Zeno defense
+                if self.apply_zeno_defense_to_ship((row, col)):
+                    return  # Defense applied successfully
+            else:
+                # Player clicked on wrong board during defense - cancel and clear visuals
+                self.clear_all_visual_effects()
+                messagebox.showinfo("Defense Cancelled", "Zeno defense mode cancelled. Select a quantum weapon to continue.", parent=self.root)
+                return
+        
+        # Normal targeting mode
         # Check if current player has already taken their turn
         if self.turn_taken:
             messagebox.showinfo("Turn Complete", "You have already taken your shot this turn!\nClick 'PASS TO PLAYER X' to continue.", parent=self.root)
@@ -496,7 +579,12 @@ class MultiplayerBattleshipUI:
             # Player 1 targeting Player 2
             target_controller = self.player2_controller
         else:
-            # Can't target own board or wrong turn
+            # Can't target own board or wrong turn  
+            if self.targeting_mode == "defense":
+                # Cancel defense mode if clicking on wrong board
+                self.targeting_mode = "2x2"
+                self.hide_revealed_ships()
+                messagebox.showinfo("Defense Cancelled", "Zeno defense mode cancelled. Select a quantum weapon to continue.", parent=self.root)
             return
             
         self.highlight_target_region(clicked_canvas, row, col, target_controller)
@@ -611,6 +699,9 @@ class MultiplayerBattleshipUI:
             
     def pass_turn(self):
         """Handle turn transition between players."""
+        # Clear all visual effects when passing turn
+        self.clear_all_visual_effects()
+        
         if self.game_phase == "ship_placement":
             if hasattr(self, 'ready_for_battle') and self.ready_for_battle:
                 # Start battle phase
@@ -627,44 +718,53 @@ class MultiplayerBattleshipUI:
                 # Switching to Player 2's turn
                 self.current_player = 2
                 self.status_label.config(text="PLAYER 2'S TURN - TARGET ENEMY FLEET")
-                
-                # NEVER show ship locations in multiplayer - only hits/misses are visible
-                # Keep all ships hidden for fair play
-                self.hide_ships(self.player1_canvas, self.player1_overlays)
-                self.hide_ships(self.player2_canvas, self.player2_overlays)
-                
             else:
                 # Switching to Player 1's turn
                 self.current_player = 1
                 self.status_label.config(text="PLAYER 1'S TURN - TARGET ENEMY FLEET")
                 
-                # NEVER show ship locations in multiplayer - only hits/misses are visible
-                # Keep all ships hidden for fair play
-                self.hide_ships(self.player1_canvas, self.player1_overlays)
-                self.hide_ships(self.player2_canvas, self.player2_overlays)
+            # NEVER show ship locations in multiplayer - only hits/misses are visible
+            # Keep all ships hidden for fair play
+            self.hide_ships(self.player1_canvas, self.player1_overlays)
+            self.hide_ships(self.player2_canvas, self.player2_overlays)
             
-            # Reset turn flag for the new player
-            self.turn_taken = False
+            # Hide Zeno protection visuals from opponent
+            self.hide_protection_visuals_from_opponent()
             
-            # Hide transition button and clear any target selection
-            self.transition_frame.pack_forget()
-            self.selected_region = []
-            self.target_controller = None
-            self.target_canvas = None
-            
-            # Clear target highlights properly
-            if hasattr(self, 'target_highlights'):
-                for highlight in self.target_highlights.values():
-                    if highlight:
+        # Reset turn flag for the new player
+        self.turn_taken = False
+        
+        # Handle quantum protection expiration
+        if hasattr(self, 'quantum_state'):
+            expired_positions = self.quantum_state.end_turn()
+            if expired_positions:
+                # Remove visual protection indicators for expired positions
+                for coords in expired_positions:
+                    self.remove_zeno_protection_visual(coords)
+        
+        # Hide transition button and clear any target selection
+        self.transition_frame.pack_forget()
+        self.selected_region = []
+        self.target_controller = None
+        self.target_canvas = None
+        
+        # Reset targeting mode to default
+        if hasattr(self, 'targeting_mode'):
+            self.targeting_mode = "2x2"
+        
+        # Clear target highlights properly
+        if hasattr(self, 'target_highlights'):
+            for highlight in self.target_highlights.values():
+                if highlight:
+                    try:
+                        # Try to delete from both canvases since we don't know which one
+                        self.player1_canvas.delete(highlight)
+                    except:
                         try:
-                            # Try to delete from both canvases since we don't know which one
-                            self.player1_canvas.delete(highlight)
+                            self.player2_canvas.delete(highlight)
                         except:
-                            try:
-                                self.player2_canvas.delete(highlight)
-                            except:
-                                pass
-                self.target_highlights = {}
+                            pass
+            self.target_highlights = {}
             
     def hide_ships(self, canvas, overlays):
         """Hide original ship placements (not shot results) on a board."""
@@ -716,6 +816,9 @@ class MultiplayerBattleshipUI:
         self.hide_ships(self.player1_canvas, self.player1_overlays)
         self.hide_ships(self.player2_canvas, self.player2_overlays)
         
+        # Hide protection visuals from opponent
+        self.hide_protection_visuals_from_opponent()
+        
         messagebox.showinfo("Battle Begins!", "Ship placement complete! Player 1 goes first.\nClick on the enemy board to select a target region, then choose your targeting mode and fire!\n\nNote: You cannot see enemy ship locations - only your hits and misses will be revealed!", parent=self.root)
         
         # Ensure the main window stays on top and focused after dialog
@@ -724,6 +827,9 @@ class MultiplayerBattleshipUI:
         
     def set_targeting_mode(self, mode):
         """Set the targeting mode and highlight selected button."""
+        # Clear any stuck visual effects when changing modes
+        self.clear_all_visual_effects()
+        
         self.selection_mode = mode
         self.mode_var.set(mode)
         self.selected_region = []
@@ -747,30 +853,43 @@ class MultiplayerBattleshipUI:
                         pass
             self.target_highlights = {}
             
-    def fire_quantum_shot(self):
-        """Execute player's quantum shot."""
+    def fire_quantum_weapon(self, weapon_type):
+        """Execute player's selected quantum weapon."""
+        # Clear stuck visual effects but preserve target selection
+        self.clear_all_visual_effects(preserve_selection=True)
+        
         # Check if we're in battle phase
         if self.game_phase != "battle":
             messagebox.showwarning("Not Ready", "Complete ship placement first!", parent=self.root)
             return
             
         # Check if current player has already taken their turn
-        if self.turn_taken:
+        if self.turn_taken and weapon_type != "zeno_defense":
             messagebox.showinfo("Turn Complete", "You have already taken your shot this turn!\nClick 'PASS TO PLAYER X' to continue.", parent=self.root)
             self.root.lift()
             self.root.focus_force()
             return
             
-        # Check if target region is selected
-        if not hasattr(self, 'selected_region') or not self.selected_region:
-            messagebox.showwarning("No Target", "Please click on the enemy board to select a target region first!", parent=self.root)
-            return
-            
-        # Check if target controller is set
-        if not hasattr(self, 'target_controller') or not self.target_controller:
-            messagebox.showwarning("No Target", "Please click on the enemy board to select a target first!", parent=self.root)
-            return
-            
+        # Check if target region is selected (not needed for Zeno defense)
+        if weapon_type != "zeno_defense":
+            if not hasattr(self, 'selected_region') or not self.selected_region:
+                messagebox.showwarning("No Target", "Please click on the enemy board to select a target region first!", parent=self.root)
+                return
+                
+            # Validate targeting mode compatibility with weapon type
+            if hasattr(self, 'targeting_mode'):
+                if weapon_type in ["grover", "ev_scan"] and self.targeting_mode == "classical":
+                    messagebox.showwarning("Invalid Targeting", f"{weapon_type.upper()} requires a 2x2 region target, not single square. Switch to '2x2 Square' targeting mode.", parent=self.root)
+                    return
+                elif weapon_type == "classical" and self.targeting_mode != "classical":
+                    messagebox.showwarning("Invalid Targeting", "Classical shot requires single square targeting mode. Switch to 'Classical' targeting mode.", parent=self.root)
+                    return
+                
+            # Check if target controller is set
+            if not hasattr(self, 'target_controller') or not self.target_controller:
+                messagebox.showwarning("No Target", "Please click on the enemy board to select a target first!", parent=self.root)
+                return
+        
         # Clear selection highlights
         if hasattr(self, 'target_highlights'):
             for highlight in self.target_highlights.values():
@@ -780,19 +899,246 @@ class MultiplayerBattleshipUI:
                     except:
                         pass
             self.target_highlights = {}
-            
-        # Fire shot
-        result = self.target_controller.fire_shot(self.selected_region)
         
+        # Determine region key for tracking (tuple of sorted coords)
+        region_key = tuple(sorted(self.selected_region)) if weapon_type == "grover" else None
+        # Get targeted squares for this region
+        if weapon_type == "grover" and region_key:
+            if self.current_player == 1:
+                targeted = self.player1_targeted_regions.get(region_key, set())
+            else:
+                targeted = self.player2_targeted_regions.get(region_key, set())
+            # If all squares in region have been targeted, show message and abort
+            if set(self.selected_region) == targeted:
+                messagebox.showinfo("Region Exhausted", "You must choose a different region to attack on the grid.", parent=self.root)
+                return
+        # Get enemy ship positions, excluding already hit ships
+        if self.current_player == 1:
+            enemy_ships = [pos for pos in self.player2_ships if pos not in self.player2_hits]
+        else:
+            enemy_ships = [pos for pos in self.player1_ships if pos not in self.player1_hits]
+        
+        # Execute the quantum weapon
+        if weapon_type == "grover":
+            # Get already targeted squares for this region to exclude them
+            excluded_squares = None
+            if region_key:
+                if self.current_player == 1:
+                    excluded_squares = self.player1_targeted_regions.get(region_key, set())
+                else:
+                    excluded_squares = self.player2_targeted_regions.get(region_key, set())
+            result = self.quantum_state.execute_attack("grover", self.selected_region, enemy_ships, excluded_squares)
+        elif weapon_type == "ev_scan":
+            result = self.quantum_state.execute_attack("ev_scan", self.selected_region, enemy_ships)
+        elif weapon_type == "classical":
+            # Classical shot - single target
+            if len(self.selected_region) != 1:
+                messagebox.showwarning("Invalid Target", "Classical shot requires exactly one target square!", parent=self.root)
+                return
+            target_coord = self.selected_region[0]
+            # Check if target has a ship
+            if target_coord in enemy_ships:
+                result = {
+                    "type": "hit",
+                    "coords": target_coord,
+                    "message": f"Classical shot hit enemy ship at {target_coord}!",
+                    "method": "classical"
+                }
+            else:
+                result = {
+                    "type": "miss",
+                    "coords": target_coord,
+                    "message": f"Classical shot missed at {target_coord}.",
+                    "method": "classical"
+                }
+        else:
+            messagebox.showwarning("Error", f"Unknown weapon type: {weapon_type}", parent=self.root)
+            return
+            
         if "error" in result:
             messagebox.showwarning("Error", result["error"], parent=self.root)
             return
             
-        # Mark that this player has taken their turn
-        self.turn_taken = True
-        
+        # Mark that this player has taken their turn (except for Zeno defense)
+        if weapon_type != "zeno_defense":
+            self.turn_taken = True
+            # Show transition button for next player
+            self.transition_frame.pack(pady=10)
+            next_player = 2 if self.current_player == 1 else 1
+            self.transition_btn.config(text=f"PASS TO PLAYER {next_player}")
         # Show targeting animation before displaying result
         self.show_targeting_animation(result)
+    
+    def activate_zeno_defense(self):
+        """Activate Zeno defense mode - reveal own ships and allow selection."""
+        # Clear any stuck visual effects first
+        self.clear_all_visual_effects()
+        
+        # Check if we're in battle phase
+        if self.game_phase != "battle":
+            messagebox.showwarning("Not Ready", "Complete ship placement first!", parent=self.root)
+            return
+        
+        # Set targeting mode to defense
+        self.targeting_mode = "defense"
+        
+        # Reveal player's own ships temporarily for selection
+        self.reveal_own_ships_for_defense()
+        
+        # Show instruction message
+        messagebox.showinfo("Zeno Defense", 
+                          f"Player {self.current_player}: Click on one of your ships to protect it with Zeno defense!", 
+                          parent=self.root)
+        self.root.lift()
+        self.root.focus_force()
+    
+    def reveal_own_ships_for_defense(self):
+        """Temporarily reveal player's own ships for Zeno defense selection."""
+        own_ships = self.player1_ships if self.current_player == 1 else self.player2_ships
+        own_canvas = self.player1_canvas if self.current_player == 1 else self.player2_canvas
+        
+        # Store current revealed ships to restore later
+        if not hasattr(self, 'temp_revealed_ships'):
+            self.temp_revealed_ships = []
+        
+        # Reveal own ships with a special color for defense selection
+        for row, col in own_ships:
+            cx = col * self.cell_size + self.cell_size // 2
+            cy = row * self.cell_size + self.cell_size // 2
+            
+            ship_marker = own_canvas.create_oval(
+                cx - 15, cy - 15, cx + 15, cy + 15,
+                fill="#4169E1", outline="#000080", width=2  # Blue color for own ships
+            )
+            self.temp_revealed_ships.append(ship_marker)
+    
+    def hide_revealed_ships(self):
+        """Hide temporarily revealed ships after defense selection."""
+        if hasattr(self, 'temp_revealed_ships'):
+            own_canvas = self.player1_canvas if self.current_player == 1 else self.player2_canvas
+            for marker in self.temp_revealed_ships:
+                own_canvas.delete(marker)
+            self.temp_revealed_ships = []
+    
+    def apply_zeno_defense_to_ship(self, coords):
+        """Apply Zeno defense to a specific ship coordinate."""
+        # Verify this is player's own ship
+        own_ships = self.player1_ships if self.current_player == 1 else self.player2_ships
+        
+        if coords not in own_ships:
+            messagebox.showwarning("Invalid Target", "You can only apply Zeno defense to your own ships!", parent=self.root)
+            return False
+        
+        # Apply Zeno protection
+        result = self.quantum_state.add_zeno_protection(coords, strength=3, duration=1)
+        
+        # Show protection effect visually
+        self.show_zeno_protection(coords)
+        
+        # Hide revealed ships
+        self.hide_revealed_ships()
+        
+        # Clear all visual effects to ensure clean state
+        self.clear_all_visual_effects()
+        
+        # Display result and end turn
+        messagebox.showinfo("Zeno Defense", f"{result['message']} (Protection lasts 1 round)", parent=self.root)
+        self.root.lift()
+        self.root.focus_force()
+        
+        # Clear selection and end turn
+        self.selected_region = []
+        self.targeting_mode = "2x2"  # Reset to default
+        
+        # End turn immediately for Zeno defense
+        self.turn_taken = True
+        
+        # Show transition button for next player
+        next_player = 2 if self.current_player == 1 else 1
+        self.transition_btn.config(text=f"PASS TO PLAYER {next_player}")
+        self.transition_frame.pack(pady=20)
+        
+        return True
+    
+    def complete_turn(self):
+        """Complete current player's turn and prepare for transition."""
+        self.turn_taken = True
+        
+        # Show transition button for next player
+        next_player = 2 if self.current_player == 1 else 1
+        self.transition_btn.config(text=f"PASS TO PLAYER {next_player}")
+        self.transition_frame.pack(pady=20)
+    
+    def show_zeno_protection(self, coords):
+        """Show visual indication of Zeno protection."""
+        row, col = coords
+        canvas = self.player1_canvas if self.current_player == 1 else self.player2_canvas
+        
+        cx = col * self.cell_size + self.cell_size // 2
+        cy = row * self.cell_size + self.cell_size // 2
+        
+        # Create a golden shield overlay
+        shield = canvas.create_oval(
+            cx - 25, cy - 25, cx + 25, cy + 25,
+            outline="#ffd700", width=3, fill="", stipple="gray25"
+        )
+        
+        # Store shield for removal later
+        if not hasattr(self, 'protection_visuals'):
+            self.protection_visuals = {}
+        self.protection_visuals[coords] = shield
+    
+    def remove_zeno_protection_visual(self, coords):
+        """Remove visual indication of Zeno protection."""
+        if hasattr(self, 'protection_visuals') and coords in self.protection_visuals:
+            # Determine which canvas
+            canvas = self.player1_canvas if self.current_player == 1 else self.player2_canvas
+            try:
+                canvas.delete(self.protection_visuals[coords])
+            except:
+                # Try other canvas
+                other_canvas = self.player2_canvas if self.current_player == 1 else self.player1_canvas
+                try:
+                    other_canvas.delete(self.protection_visuals[coords])
+                except:
+                    pass
+            del self.protection_visuals[coords]
+    
+    def hide_protection_visuals_from_opponent(self):
+        """Hide Zeno protection visuals so opponent can't see protected ship locations."""
+        if hasattr(self, 'protection_visuals'):
+            for coords, shield_visual in self.protection_visuals.items():
+                # Determine which player owns this protection
+                player1_ships = set(self.player1_ships)
+                player2_ships = set(self.player2_ships)
+                
+                if coords in player1_ships:
+                    # Player 1's protection - hide when it's Player 2's turn
+                    if self.current_player == 2:
+                        try:
+                            self.player1_canvas.itemconfig(shield_visual, state="hidden")
+                        except:
+                            pass
+                    else:
+                        # Show when it's Player 1's turn
+                        try:
+                            self.player1_canvas.itemconfig(shield_visual, state="normal")
+                        except:
+                            pass
+                            
+                elif coords in player2_ships:
+                    # Player 2's protection - hide when it's Player 1's turn
+                    if self.current_player == 1:
+                        try:
+                            self.player2_canvas.itemconfig(shield_visual, state="hidden")
+                        except:
+                            pass
+                    else:
+                        # Show when it's Player 2's turn
+                        try:
+                            self.player2_canvas.itemconfig(shield_visual, state="normal")
+                        except:
+                            pass
     
     def show_targeting_animation(self, shot_result):
         """Show visual animation of player's targeting pattern."""
@@ -878,77 +1224,183 @@ class MultiplayerBattleshipUI:
     def complete_targeting_shot(self, result):
         """Complete the targeting shot after animation."""
         # Determine which overlays to use
-        if self.target_canvas == self.player1_canvas:
-            overlays = self.player1_overlays
+        if hasattr(self, 'target_canvas') and self.target_canvas:
+            if self.target_canvas == self.player1_canvas:
+                overlays = self.player1_overlays
+                shot_overlays = self.player1_shot_overlays
+            else:
+                overlays = self.player2_overlays
+                shot_overlays = self.player2_shot_overlays
         else:
-            overlays = self.player2_overlays
+            # Fallback for cases where target_canvas isn't set
+            overlays = self.player2_overlays if self.current_player == 1 else self.player1_overlays
+            shot_overlays = self.player2_shot_overlays if self.current_player == 1 else self.player1_shot_overlays
+            self.target_canvas = self.player2_canvas if self.current_player == 1 else self.player1_canvas
             
-        # Update board display
-        if result["type"] == "hit":
+        # Handle different quantum weapon results
+        result_type = result.get("type", "miss")
+        weapon_method = result.get("method", "unknown")
+        
+        if result_type == "hit":
+            # Standard Grover hit
             coords_info = f"at {result['coords']}" if result.get("coords") else ""
-            messagebox.showinfo("Result", f"🎯 HIT! Enemy ship destroyed {coords_info}!\n\nQuantum measurement: {result.get('message', '')}", parent=self.root)
-            # Ensure window focus after dialog
-            self.root.lift()
-            self.root.focus_force()
-            # Reveal the hit ship location only
-            if "coords" in result and self.ship_img:
-                hit_row, hit_col = result["coords"]
-                cx = hit_col * self.cell_size + self.cell_size // 2
-                cy = hit_row * self.cell_size + self.cell_size // 2
-                # Show the ship image at the hit location
-                ship_overlay = self.target_canvas.create_image(cx, cy, image=self.ship_img)
-                # Mark this location as having an overlay in BOTH arrays
-                if self.target_canvas == self.player1_canvas:
-                    self.player1_overlays[hit_row][hit_col] = ship_overlay
-                    self.player1_shot_overlays[hit_row][hit_col] = ship_overlay  # Track as shot result
-                else:
-                    self.player2_overlays[hit_row][hit_col] = ship_overlay
-                    self.player2_shot_overlays[hit_row][hit_col] = ship_overlay  # Track as shot result
-                
-                # Add red X over the hit ship
-                x_size = 20
-                x_mark1 = self.target_canvas.create_line(
-                    cx - x_size, cy - x_size, cx + x_size, cy + x_size,
-                    fill="#ff0000", width=4
-                )
-                x_mark2 = self.target_canvas.create_line(
-                    cx - x_size, cy + x_size, cx + x_size, cy - x_size,
-                    fill="#ff0000", width=4
-                )
+            messagebox.showinfo("Grover Hit!", f"🎯 DIRECT HIT! Enemy ship destroyed {coords_info}!\n\n{result.get('message', '')}", parent=self.root)
+            self.show_hit_result(result, overlays, shot_overlays)
+            # Track hit ship
+            if self.current_player == 1 and result.get("coords"):
+                if result["coords"] not in self.player2_hits:
+                    self.player2_hits.append(result["coords"])
+            elif self.current_player == 2 and result.get("coords"):
+                if result["coords"] not in self.player1_hits:
+                    self.player1_hits.append(result["coords"])
+            
+        elif result_type == "detected":
+            # EV scan successful detection
+            coords_info = f"at {result['coords']}" if result.get("coords") else ""
+            messagebox.showinfo("EV Detection!", f"🔍 SHIP DETECTED! EV scan found enemy ship {coords_info}!\n\n{result.get('message', '')}", parent=self.root)
+            self.show_detection_result(result)
+            
+        elif result_type == "interaction":
+            # EV scan with interaction (ship damaged)
+            coords_info = f"at {result['coords']}" if result.get("coords") else ""
+            messagebox.showinfo("EV Interaction!", f"⚡ INTERACTION! EV scan damaged ship {coords_info}!\n\n{result.get('message', '')}", parent=self.root)
+            self.show_interaction_result(result, overlays, shot_overlays)
+            
+        elif result_type == "clear":
+            # EV scan - no ships detected
+            messagebox.showinfo("EV Clear!", f"✅ AREA CLEAR! EV scan confirmed no ships in region.\n\n{result.get('message', '')}", parent=self.root)
+            
+        elif result_type == "inconclusive":
+            # EV scan - inconclusive result
+            messagebox.showinfo("EV Inconclusive", f"❓ INCONCLUSIVE! EV scan could not determine ship presence.\n\n{result.get('message', '')}", parent=self.root)
+            
+        elif result_type == "noise":
+            # EV scan - false positive
+            messagebox.showinfo("EV Noise", f"📡 QUANTUM NOISE! EV scan detected interference.\n\n{result.get('message', '')}", parent=self.root)
+            self.show_noise_result(result, overlays, shot_overlays)
+            
+        elif result_type == "blocked":
+            # Attack blocked by Zeno defense
+            messagebox.showinfo("Attack Blocked!", f"🛡️ ZENO DEFENSE! Attack blocked by quantum shield!\n\n{result.get('message', '')}", parent=self.root)
+            
+        elif result_type == "obfuscated":
+            # EV scan blocked by Zeno defense
+            messagebox.showinfo("Scan Obfuscated!", f"🌀 ZENO INTERFERENCE! EV scan blocked by quantum defense!\n\n{result.get('message', '')}", parent=self.root)
+            
         else:
+            # Standard miss (Grover or other)
             coords_info = f"Measured position: {result['coords']}" if result.get("coords") else "No measurement"
-            messagebox.showinfo("Result", f"💧 MISS! Quantum scan found no ships.\n{coords_info}\n\nDetails: {result.get('message', '')}", parent=self.root)
-            # Ensure window focus after dialog
-            self.root.lift()
-            self.root.focus_force()
-            # Place splash only on measured position
-            if "coords" in result and self.splash_img:
-                miss_row, miss_col = result["coords"]
-                if 0 <= miss_row < self.grid_size and 0 <= miss_col < self.grid_size:
-                    if not overlays[miss_row][miss_col]:
-                        cx = miss_col * self.cell_size + self.cell_size // 2
-                        cy = miss_row * self.cell_size + self.cell_size // 2
-                        splash_overlay = self.target_canvas.create_image(cx, cy, image=self.splash_img)
-                        overlays[miss_row][miss_col] = splash_overlay
-                        # Also track in shot overlays so it stays visible
-                        if self.target_canvas == self.player1_canvas:
-                            self.player1_shot_overlays[miss_row][miss_col] = splash_overlay
-                        else:
-                            self.player2_shot_overlays[miss_row][miss_col] = splash_overlay
+            messagebox.showinfo("Miss!", f"💧 MISS! Quantum scan found no ships.\n{coords_info}\n\n{result.get('message', '')}", parent=self.root)
+            self.show_miss_result(result, overlays, shot_overlays)
+        
+        # Track hit/miss for ALL Grover shots in region (both hits and misses)
+        if result.get("method") == "grover" and result.get("coords") and self.selected_region:
+            region_key = tuple(sorted(self.selected_region))
+            coord = result["coords"]
+            if self.current_player == 1:
+                targeted = self.player1_targeted_regions.setdefault(region_key, set())
+                targeted.add(coord)
+            else:
+                targeted = self.player2_targeted_regions.setdefault(region_key, set())
+                targeted.add(coord)
+        
+        # Ensure window focus after dialog
+        self.root.lift()
+        self.root.focus_force()
         
         # Clear selection
         self.selected_region = []
         
-        # Check for win
-        if self.target_controller.is_game_won():
-            winner = "PLAYER 1" if self.current_player == 1 else "PLAYER 2"
-            messagebox.showinfo("VICTORY!", f"🏆 {winner} WINS! All enemy ships destroyed!", parent=self.root)
-            return
+        # Check for win (only for destructive hits)
+        if result_type in ["hit", "interaction"] and hasattr(self, 'target_controller'):
+            if self.target_controller.is_game_won():
+                winner = "PLAYER 1" if self.current_player == 1 else "PLAYER 2"
+                messagebox.showinfo("VICTORY!", f"🏆 {winner} WINS! All enemy ships destroyed!", parent=self.root)
+                return
+    
+    def show_hit_result(self, result, overlays, shot_overlays):
+        """Show visual result for a direct hit."""
+        if "coords" in result and self.ship_img:
+            hit_row, hit_col = result["coords"]
+            cx = hit_col * self.cell_size + self.cell_size // 2
+            cy = hit_row * self.cell_size + self.cell_size // 2
             
-        # Show transition button for next turn
-        self.transition_frame.pack(pady=10)
-        next_player = 2 if self.current_player == 1 else 1
-        self.transition_btn.config(text=f"PASS TO PLAYER {next_player}")
+            # Show the ship image at the hit location
+            ship_overlay = self.target_canvas.create_image(cx, cy, image=self.ship_img)
+            overlays[hit_row][hit_col] = ship_overlay
+            shot_overlays[hit_row][hit_col] = ship_overlay
+            
+            # Add red X over the hit ship
+            x_size = 20
+            x_mark1 = self.target_canvas.create_line(
+                cx - x_size, cy - x_size, cx + x_size, cy + x_size,
+                fill="#ff0000", width=4
+            )
+            x_mark2 = self.target_canvas.create_line(
+                cx - x_size, cy + x_size, cx + x_size, cy - x_size,
+                fill="#ff0000", width=4
+            )
+    
+    def show_detection_result(self, result):
+        """Show visual result for EV detection (no damage)."""
+        if "coords" in result:
+            det_row, det_col = result["coords"]
+            cx = det_col * self.cell_size + self.cell_size // 2
+            cy = det_row * self.cell_size + self.cell_size // 2
+            
+            # Show pulsing detection indicator
+            detection_marker = self.target_canvas.create_oval(
+                cx - 15, cy - 15, cx + 15, cy + 15,
+                outline="#00ff00", width=3, fill="", stipple="gray50"
+            )
+            
+            # Store for cleanup
+            if not hasattr(self, 'detection_markers'):
+                self.detection_markers = []
+            self.detection_markers.append(detection_marker)
+    
+    def show_interaction_result(self, result, overlays, shot_overlays):
+        """Show visual result for EV interaction (ship damaged)."""
+        if "coords" in result and self.ship_img:
+            int_row, int_col = result["coords"]
+            cx = int_col * self.cell_size + self.cell_size // 2
+            cy = int_row * self.cell_size + self.cell_size // 2
+            
+            # Show ship with damage indicator
+            ship_overlay = self.target_canvas.create_image(cx, cy, image=self.ship_img)
+            overlays[int_row][int_col] = ship_overlay
+            shot_overlays[int_row][int_col] = ship_overlay
+            
+            # Add yellow damage indicator
+            damage_mark = self.target_canvas.create_oval(
+                cx - 10, cy - 10, cx + 10, cy + 10,
+                outline="#ffff00", width=3, fill="#ffff00", stipple="gray50"
+            )
+    
+    def show_noise_result(self, result, overlays, shot_overlays):
+        """Show visual result for quantum noise."""
+        if "coords" in result:
+            noise_row, noise_col = result["coords"]
+            cx = noise_col * self.cell_size + self.cell_size // 2
+            cy = noise_row * self.cell_size + self.cell_size // 2
+            
+            # Show static/noise indicator
+            noise_marker = self.target_canvas.create_rectangle(
+                cx - 8, cy - 8, cx + 8, cy + 8,
+                outline="#888888", width=2, fill="#888888", stipple="gray25"
+            )
+    
+    def show_miss_result(self, result, overlays, shot_overlays):
+        """Show visual result for a miss."""
+        if "coords" in result and self.splash_img:
+            miss_row, miss_col = result["coords"]
+            if 0 <= miss_row < self.grid_size and 0 <= miss_col < self.grid_size:
+                if not overlays[miss_row][miss_col]:
+                    cx = miss_col * self.cell_size + self.cell_size // 2
+                    cy = miss_row * self.cell_size + self.cell_size // 2
+                    splash_overlay = self.target_canvas.create_image(cx, cy, image=self.splash_img)
+                    overlays[miss_row][miss_col] = splash_overlay
+                    shot_overlays[miss_row][miss_col] = splash_overlay
         
     def new_game(self):
         """Start a new game."""
@@ -997,6 +1449,88 @@ class MultiplayerBattleshipUI:
         self.player2_canvas.delete("all")
         self.draw_grid(self.player1_canvas, self.player1_cells)
         self.draw_grid(self.player2_canvas, self.player2_cells)
+
+    def clear_all_visual_effects(self, preserve_selection=False):
+        """Clear all temporary visual effects to prevent stuck elements."""
+        # Clear target highlights more aggressively
+        if hasattr(self, 'target_highlights'):
+            for highlight in self.target_highlights.values():
+                if highlight:
+                    # Try deleting from both canvases to be sure
+                    for canvas in [self.player1_canvas, self.player2_canvas]:
+                        try:
+                            canvas.delete(highlight)
+                        except:
+                            pass
+            self.target_highlights = {}
+        
+        # Clear selection region only if not preserving it
+        if not preserve_selection and hasattr(self, 'selected_region'):
+            self.selected_region = []
+        
+        # Reset target canvas references only if not preserving selection
+        if not preserve_selection:
+            if hasattr(self, 'target_canvas'):
+                self.target_canvas = None
+            if hasattr(self, 'target_controller'):
+                self.target_controller = None
+        
+        # Clear targeting animations
+        if hasattr(self, 'targeting_animation_overlays'):
+            for overlay in self.targeting_animation_overlays:
+                if overlay:
+                    try:
+                        if hasattr(self, 'target_canvas') and self.target_canvas:
+                            self.target_canvas.delete(overlay)
+                    except:
+                        # Try both canvases if target_canvas isn't available
+                        try:
+                            self.player1_canvas.delete(overlay)
+                        except:
+                            try:
+                                self.player2_canvas.delete(overlay)
+                            except:
+                                pass
+            self.targeting_animation_overlays = []
+        
+        # Reset animation step counter
+        if hasattr(self, 'targeting_animation_step'):
+            self.targeting_animation_step = 0
+        
+        # Clear temporarily revealed ships (Zeno defense circles)
+        if hasattr(self, 'temp_revealed_ships'):
+            own_canvas = None
+            try:
+                own_canvas = self.player1_canvas if self.current_player == 1 else self.player2_canvas
+            except:
+                # If current_player is undefined, try both canvases
+                pass
+            
+            for marker in self.temp_revealed_ships:
+                if marker:
+                    try:
+                        if own_canvas:
+                            own_canvas.delete(marker)
+                        else:
+                            # Try both canvases
+                            try:
+                                self.player1_canvas.delete(marker)
+                            except:
+                                try:
+                                    self.player2_canvas.delete(marker)
+                                except:
+                                    pass
+                    except:
+                        pass
+            self.temp_revealed_ships = []
+        
+        # Reset targeting mode to default if it's in defense mode
+        if hasattr(self, 'targeting_mode') and self.targeting_mode == "defense":
+            self.targeting_mode = "2x2"
+        
+        # Clear selection region
+        if hasattr(self, 'selected_region'):
+            self.selected_region = []
 
 
 def main():
