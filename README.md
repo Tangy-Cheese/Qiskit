@@ -23,8 +23,8 @@ Quantum Battleships transforms the classic game by incorporating three fundament
 
 1. **Clone this repository:**
    ```bash
-   git clone https://github.com/Tangy-Cheese/Qiskit.git
-   cd Qiskit
+   git clone https://github.com/Tangy-Cheese/Quantum-Battleships.git
+   cd Quantum-Battleships
    ```
 
 2. **Install dependencies:**
